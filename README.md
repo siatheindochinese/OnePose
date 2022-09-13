@@ -10,3 +10,7 @@
 
 ## IMPORTANT
 Modified for private use-case.
+
+- Added YoloV5 detector, weights located at data/yolov5/
+- Added realtime scripts cv2_real_time_improved.py and cv2_real_time_improved.sh
+- Added a modified feature-matching object detector (modified for realtime)
