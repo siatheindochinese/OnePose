@@ -1,0 +1,1 @@
+from .local_feature_2D_detector_modified import LocalFeatureObjectDetector
