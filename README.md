@@ -1,4 +1,7 @@
 # OnePose: One-Shot Object Pose Estimation without CAD Models
+
+Added pipeline for realtime visualization.
+
 ### [Original Project Page](https://zju3dv.github.io/onepose) | [Paper](https://arxiv.org/pdf/2205.12257.pdf)
 <br/>
 
