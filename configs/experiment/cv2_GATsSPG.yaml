@@ -24,6 +24,7 @@ object: ufcoco
 sfm_model_dir: ${data_dir}/sfm_model/${object}-box
 box3d_path: ${data_dir}/onepose_datasets/test_data/${object}-box/box3d_corners.txt
 sfm_ws_dir: ${data_dir}/sfm_model/${object}-box/outputs_superpoint_superglue/sfm_ws/model
+intrin: intrin_ps3.txt
 
 output:
     vis_dir: ${work_dir}/runs/vis/GATsSPG

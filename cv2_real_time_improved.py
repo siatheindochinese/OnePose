@@ -100,7 +100,7 @@ def main(cfg):
 	clt_descriptors, _ = data_utils.build_features3d_leaves(clt_data['descriptors3d'], clt_data['scores3d'], idxs, num_3d, num_leaf)
 
 	# load intrinsics
-	K_full = np.loadtxt('intrin_ps3.txt')  #placeholder matrix
+	K_full = np.loadtxt(cfg.intrin)  #placeholder matrix
 	K_crop = K_full
 
 	# Some while-loop flags
