@@ -42,14 +42,12 @@ def draw_keypoints_vanilla(img, corners, color=(0, 255, 0), radius=3):
 	return backtorgb
 
 # modified reproj for realtime data
-def realtime_reproj(frame, poses, box3d_path, K_full, colors=['g']):
-	box3d = np.loadtxt(box3d_path)
+def realtime_reproj(frame, poses, bbox3d, K_full, colors=['g']):
 	image_full = frame
-
 	for pose, color in zip(poses, colors):
 		# Draw pred 3d box
 		if pose is not None:
-			reproj_box_2d = vis_utils.reproj(K_full, pose, box3d)
+			reproj_box_2d = vis_utils.reproj(K_full, pose, bbox3d)
 			vis_utils.draw_3d_box(image_full, reproj_box_2d, color=color)
 
 	return image_full
@@ -61,15 +59,17 @@ def main(cfg):
 	video_stream = cv2.VideoCapture(0)
 	cv2.namedWindow('frame',cv2.WINDOW_NORMAL)
 	cv2.resizeWindow('frame', 1920, 1080)
+	width, height = 640, 480
 
 	# initialize video recorder object
-	#width= int(video_stream.get(cv2.CAP_PROP_FRAME_WIDTH))
-	#height= int(video_stream.get(cv2.CAP_PROP_FRAME_HEIGHT))
-	#writer= cv2.VideoWriter('basicvideo.mp4', cv2.VideoWriter_fourcc(*'DIVX'), 30, (width,height))
+	#writer = cv2.VideoWriter('basicvideo.mp4', cv2.VideoWriter_fourcc(*'DIVX'), 30, (width,height))
         
 	# load Optical Flow Tracker
+	# to-be-added
+	'''
 	tracker = BATracker(cfg)
 	track_interval = 5
+	'''
         
 	# load SuperPoint, SuperGlue and OnePose GAT
 	matching_model, extractor_model = load_model(cfg)
@@ -77,7 +77,7 @@ def main(cfg):
         
     
 	# load yolov5 detector
-	yolov5_detector = YoloV5Detector('/home/intern1/yolov5/','data/yolov5/ufcoco.pt')
+	yolov5_detector = YoloV5Detector(cfg.yolov5_dir, cfg.yolov5_weights_dir)
 
 	# load SfM
 	anno_dir = osp.join(cfg.sfm_model_dir, f'outputs_{cfg.network.detection}_{cfg.network.matching}', 'anno')
@@ -112,14 +112,11 @@ def main(cfg):
 		# stream the next frame
 		_, image = video_stream.read()
 		frame = image
-		#frame = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY).astype(np.float32)
-		#frame /= 255.
 
 		##### object detection
 		if init == False:
 			print('initial object-detection frame')
 			bbox, inp_crop, K_crop = yolov5_detector.detect(frame, K_full)
-			#bbox, inp_crop, K_crop = local_feature_obj_detector.detect(frame, K_full)
 			init = True
 		else:
 			# use previous frame pose
@@ -127,12 +124,10 @@ def main(cfg):
 			if len(previous_inliers) < 8:
 				print('object-detection frame')
 				bbox, inp_crop, K_crop = yolov5_detector.detect(frame, K_full)
-				#bbox, inp_crop, K_crop = local_feature_obj_detector.detect(frame, K_full)
 		    ## else, get GT box from previous frame to crop image
 			else:
 				print('GT frame')
 				bbox, inp_crop, K_crop = yolov5_detector.previous_pose_detect(frame, K_full, previous_frame_pose, bbox3d)
-				#bbox, inp_crop, K_crop = local_feature_obj_detector.previous_pose_detect(frame, K_full, previous_frame_pose, bbox3d)
 		print('bbox=',bbox)
 		
 		##### Determine if object is detected within the frame
@@ -168,47 +163,7 @@ def main(cfg):
 			pose_pred, pose_pred_homo, inliers = eval_utils.ransac_PnP(K_crop, mkpts2d, mkpts3d, scale=1000)
 			##### optical flow tracking
 			'''
-			image_crop = (inp_crop * 255).astype(np.uint8)
-
-			frame_dict = {
-					'im_path': image_crop,
-					'kpt_pred': pred_detection,
-					'pose_pred': pose_pred_homo,
-					'pose_gt': pose_pred_homo,
-					'K': K_crop,
-					'K_crop': K_crop,
-					}
-
-			use_update = idx % track_interval == 0
-			if use_update:
-					mkpts3d_db_inlier = mkpts3d[inliers.flatten()]
-					mkpts2d_q_inlier = mkpts2d[inliers.flatten()]
-					n_kpt = kpts2d.shape[0]
-					valid_query_id = np.where(valid != False)[0][inliers.flatten()]
-					kpts3d_full = np.ones([n_kpt, 3]) * 10086
-					kpts3d_full[valid_query_id] = mkpts3d_db_inlier
-					kpt3d_ids = matches[valid][inliers.flatten()]
-					kf_dict = {
-						    'im_path': image_crop,
-						    'kpt_pred': pred_detection,
-						    'valid_mask': valid,
-						    'mkpts2d': mkpts2d_q_inlier,
-						    'mkpts3d': mkpts3d_db_inlier,
-						    'inliers': inliers,
-						    'kpt3d_ids': kpt3d_ids,
-						    'valid_query_id': valid_query_id,
-						    'pose_pred': pose_pred_homo,
-						    'pose_gt': pose_pred_homo,
-						    'K': K_crop
-						    }
-					need_update = not tracker.update_kf(kf_dict)
-
-			if idx == 0:
-					tracker.add_kf(kf_dict)
-					idx += 1
-					pose_opt = pose_pred_homo
-			else:
-					pose_init, pose_opt, ba_log = tracker.track(frame_dict, auto_mode=False)
+			to-be-added
 			'''
 		    
 			##### Store estimated poses
@@ -223,7 +178,7 @@ def main(cfg):
 		if object_detected and not np.array_equal(pose_pred_homo, np.eye(4)):
 			poses = [pose_pred_homo]
 
-			image_full = realtime_reproj(image, poses, cfg.box3d_path, K_full, colors=['g'])
+			image_full = realtime_reproj(image, poses, bbox3d, K_full, colors=['g'])
 			x1, y1, x2, y2 = bbox
 			cv2.rectangle(image_full, (x1, y1), (x2, y2), (255,0,0), 2)
 			result = draw_keypoints(image_full, validcorners, K_full, K_crop)
