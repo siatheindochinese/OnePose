@@ -86,6 +86,7 @@ class YoloV5Detector():
         x0, y0 = np.min(proj_2D_coor, axis=0)
         x1, y1 = np.max(proj_2D_coor, axis=0)
         bbox = np.array([x0, y0, x1, y1]).astype(np.int32)
+        bbox[bbox < 0] = 0
 
         image_crop, K_crop = self.crop_img_by_bbox(query_img, bbox, K, crop_size=crop_size)
 
