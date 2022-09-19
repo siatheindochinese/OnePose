@@ -1,7 +1,10 @@
 # OnePose (but with CAD Models)
 But why?
+
 Because I want my SfM point-cloud model to be properly aligned with my CAD Model canonically.
+
 But why?
+
 I want to render stuff relative to the canonical pose of my CAD model.
 
 Added pipeline for realtime visualization.
