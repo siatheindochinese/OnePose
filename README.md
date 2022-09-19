@@ -27,5 +27,5 @@ Modified for private use-case.
 - Added realtime scripts cv2_real_time_improved.py and cv2_real_time_improved.sh
 - Added a modified feature-matching object detector (modified for realtime, but it still sucks lmao)
 
-## Disclaimer
-I am not the original author(s)/researcher(s) behind OnePose. Credit belongs to the authors mentioned above.
+## Acknowledgement
+This repository uses work from [YoloV5](https://github.com/ultralytics/yolov5) and [OnePose](https://github.com/zju3dv/OnePose), neither of which I am originally involved in.
