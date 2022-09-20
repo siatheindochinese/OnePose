@@ -20,6 +20,11 @@ Added pipeline for realtime visualization.
 
 Refer to the original repository for setup instructions.
 
+## Synthetic Images from CAD Model
+Images used to construct the SfM point-cloud model are generated from Blender using the desired CAD Model. Camera intrinsics and object pose (relative to the camera) are collected and processed directly using Blender's python interface. The 3D bounding box is also manually annotated in Blender, and the reprojected 2D bounding box is collected after some processing using Blender's python interface.
+
+![demo_vid](assets/synthetic_ufcoco.gif)
+
 ## IMPORTANT
 Modified for private use-case.
 
