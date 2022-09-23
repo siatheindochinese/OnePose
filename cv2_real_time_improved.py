@@ -74,8 +74,7 @@ def main(cfg):
 	# load SuperPoint, SuperGlue and OnePose GAT
 	matching_model, extractor_model = load_model(cfg)
 	matching_2D_model = load_2D_matching_model(cfg)
-        
-    
+	
 	# load yolov5 detector
 	yolov5_detector = YoloV5Detector(cfg.yolov5_dir, cfg.yolov5_weights_dir)
 
@@ -100,8 +99,49 @@ def main(cfg):
 	clt_descriptors, _ = data_utils.build_features3d_leaves(clt_data['descriptors3d'], clt_data['scores3d'], idxs, num_3d, num_leaf)
 
 	# load intrinsics
-	K_full = np.loadtxt(cfg.intrin)  #placeholder matrix
+	K_full = np.loadtxt(cfg.intrin)
 	K_crop = K_full
+	height, width = 480, 640
+	
+	# abstract object detection pipeline
+	def detect_object(inp, init):
+		if init == False:
+			print('initial object-detection frame')
+			bbox, inp_crop, K_crop = yolov5_detector.detect(inp, K_full, crop_size=512)
+			init = True
+		else:
+			if len(previous_inliers) < 8:
+				print('object-detection frame')
+				bbox, inp_crop, K_crop = yolov5_detector.detect(inp, K_full, crop_size=512)
+			else:
+				print('GT frame')
+				bbox, inp_crop, K_crop = yolov5_detector.previous_pose_detect(inp, K_full, previous_frame_pose, bbox3d, crop_size=512)
+		print('bbox=',bbox)
+		
+		##### Determine if object is detected within the frame
+		object_detected = not (bbox == np.array([0, 0, height, width])).all() #hardcoded dimensions
+		print('obj_detected =',object_detected)
+		return object_detected, bbox, inp_crop, K_crop, init
+		
+	# abstract OnePose pipeline
+	def onePoseForwardPass(inp_crop, K_crop):
+		inp_crop_cuda = torch.from_numpy(inp_crop.astype(np.float32)[None][None]/255.).cuda()
+		pred_detection = extractor_model(inp_crop_cuda)
+		pred_detection = {k: v[0].cpu().numpy() for k, v in pred_detection.items()}
+		inp_data = pack_data(avg_descriptors3d, clt_descriptors, keypoints3d, pred_detection, np.array([height, width]))
+		pred, _ = matching_model(inp_data)
+		matches = pred['matches0'].detach().cpu().numpy()
+		valid = matches > -1
+		notvalid = matches <= -1
+		kpts2d = pred_detection['keypoints']
+		kpts3d = inp_data['keypoints3d'][0].detach().cpu().numpy()
+		confidence = pred['matching_scores0'].detach().cpu().numpy()
+		mkpts2d, mkpts3d, mconf = kpts2d[valid], kpts3d[matches[valid]], confidence[valid]
+		validcorners = mkpts2d
+		notvalidcorners = kpts2d[notvalid]
+		print('    ',str(len(validcorners)),'valid keypoints detected')
+		_, pose_pred_homo, inliers = eval_utils.ransac_PnP(K_crop, mkpts2d, mkpts3d, scale=1000)
+		return pose_pred_homo, inliers, validcorners, notvalidcorners
 
 	# Some while-loop flags
 	init = False
@@ -111,24 +151,10 @@ def main(cfg):
 	while True:
 		# stream the next frame
 		_, image = video_stream.read()
-		frame = image
+		frame = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
 		##### object detection
-		if init == False:
-			print('initial object-detection frame')
-			bbox, inp_crop, K_crop = yolov5_detector.detect(frame, K_full)
-			init = True
-		else:
-			# use previous frame pose
-			## if len(inliers) < 8, redo object detection
-			if len(previous_inliers) < 8:
-				print('object-detection frame')
-				bbox, inp_crop, K_crop = yolov5_detector.detect(frame, K_full)
-		    ## else, get GT box from previous frame to crop image
-			else:
-				print('GT frame')
-				bbox, inp_crop, K_crop = yolov5_detector.previous_pose_detect(frame, K_full, previous_frame_pose, bbox3d)
-		print('bbox=',bbox)
+		object_detected, bbox, inp_crop, K_crop, init = detect_object(frame, init)
 		
 		##### Determine if object is detected within the frame
 		object_detected = not (bbox == np.array([0, 0, 480, 640])).all()
@@ -136,37 +162,8 @@ def main(cfg):
 		
 		if object_detected:
 			# process the frame
-			inp_crop_cuda = (torch.from_numpy(cv2.cvtColor(inp_crop, cv2.COLOR_BGR2GRAY).astype(np.float32))[None][None]/ 255.).cuda()
-			
-			##### pass frame through SuperPoint
-			pred_detection = extractor_model(inp_crop_cuda)
-			pred_detection = {k: v[0].cpu().numpy() for k, v in pred_detection.items()}
-
-			##### 2D-3D matching by OnePose
-			inp_data = pack_data(avg_descriptors3d, clt_descriptors, keypoints3d, pred_detection, np.array([480,640]))
-			pred, _ = matching_model(inp_data)
-			matches = pred['matches0'].detach().cpu().numpy()
-			valid = matches > -1
-			kpts2d = pred_detection['keypoints']
-			kpts3d = inp_data['keypoints3d'][0].detach().cpu().numpy()
-			confidence = pred['matching_scores0'].detach().cpu().numpy()
-			mkpts2d, mkpts3d, mconf = kpts2d[valid], kpts3d[matches[valid]], confidence[valid]
-
-			notvalid = matches <= -1
-			validcorners = mkpts2d
-			notvalidcorners = kpts2d[notvalid]
-			print('    ',str(len(validcorners)),'valid keypoints detected')
-
-		##### SolvePnP (if object detected, else reset stored poses)
-		if object_detected:
-			##### PnP using ransac with iter=10k
-			pose_pred, pose_pred_homo, inliers = eval_utils.ransac_PnP(K_crop, mkpts2d, mkpts3d, scale=1000)
-			##### optical flow tracking
-			'''
-			to-be-added
-			'''
-		    
-			##### Store estimated poses
+			print(inp_crop.shape)
+			pose_pred_homo, inliers, validcorners, notvalidcorners = onePoseForwardPass(inp_crop, K_crop)
 			previous_frame_pose = pose_pred_homo
 			previous_inliers = inliers
 		else:
