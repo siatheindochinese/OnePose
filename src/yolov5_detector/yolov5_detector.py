@@ -9,6 +9,17 @@ from src.utils.vis_utils import reproj
 class YoloV5Detector():
     def __init__(self, yolov5_pth, weights_pth):
         self.model = torch.hub.load(yolov5_pth, 'custom', path=weights_pth, source='local',_verbose=False)
+        
+    def rect_to_square(self, x0, y0, x1, y1):
+    	w, h = (x1 - x0), (y1 - y0)
+    	dw, dh = w/2, h/2
+    	if h > w:
+    		x0 = int(x0 + dw - dh)
+    		x1 = int(x1 - dw + dh)
+    	else:
+    		y0 = int(y0 + dh - dw)
+    		y1 = int(y1 - dh + dw)
+    	return x0, y0, x1, y1
 
     def crop_img_by_bbox(self, origin_img, bbox, K=None, crop_size=512):
         """
@@ -29,13 +40,13 @@ class YoloV5Detector():
             K_crop, K_crop_homo = get_K_crop_resize(bbox, K, resize_shape)
         image_crop, trans1 = get_image_crop_resize(origin_img, bbox, resize_shape)
         
-        '''
+        
         bbox_new = np.array([0, 0, x1 - x0, y1 - y0])
         resize_shape = np.array([crop_size, crop_size])
         if K is not None:
             K_crop, K_crop_homo = get_K_crop_resize(bbox_new, K_crop, resize_shape)
         image_crop, trans2 = get_image_crop_resize(image_crop, bbox_new, resize_shape)
-        '''
+        
         
         return image_crop, K_crop if K is not None else None
 
@@ -63,6 +74,7 @@ class YoloV5Detector():
         else:
         	bbox = out_crop[0]['box']
         	x0, y0, x1, y1 = tuple(map(int,bbox))
+        	x0, y0, x1, y1 = self.rect_to_square(x0, y0, x1, y1)
         	bbox = np.array([x0, y0, x1, y1])
         	image_crop, K_crop = self.crop_img_by_bbox(query_img, bbox, K, crop_size=crop_size)
 
@@ -85,8 +97,8 @@ class YoloV5Detector():
         proj_2D_coor = reproj(K, pre_pose, bbox3D_corner)
         x0, y0 = np.min(proj_2D_coor, axis=0)
         x1, y1 = np.max(proj_2D_coor, axis=0)
+        x0, y0, x1, y1 = self.rect_to_square(x0, y0, x1, y1)
         bbox = np.array([x0, y0, x1, y1]).astype(np.int32)
-        bbox[bbox < 0] = 0
 
         image_crop, K_crop = self.crop_img_by_bbox(query_img, bbox, K, crop_size=crop_size)
 
