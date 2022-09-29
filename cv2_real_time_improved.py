@@ -13,7 +13,7 @@ from src.utils import data_utils, path_utils, eval_utils, vis_utils
 #from src.local_feature_2D_detector_modified import LocalFeatureObjectDetector
 from src.yolov5_detector import YoloV5Detector
 
-from src.tracker.ba_tracker import BATracker
+#from src.tracker.ba_tracker import BATracker
 
 from pytorch_lightning import seed_everything
 
@@ -52,7 +52,7 @@ def realtime_reproj(frame, poses, bbox3d, K_full, colors=['g']):
 
 	return image_full
 
-@torch.no_grad()
+@torch.no_grad() # root cause of DeepLM optical flow failure
 @hydra.main(config_path='configs/', config_name='config.yaml')
 def main(cfg):
 	# initialize video capture object
@@ -62,10 +62,9 @@ def main(cfg):
 	width, height = 640, 480
 
 	# initialize video recorder object
-	#writer = cv2.VideoWriter('basicvideo.mp4', cv2.VideoWriter_fourcc(*'DIVX'), 30, (width,height))
+	writer = cv2.VideoWriter('basicvideo.mp4', cv2.VideoWriter_fourcc(*'DIVX'), 30, (width,height))
         
 	# load Optical Flow Tracker
-	# to-be-added
 	'''
 	tracker = BATracker(cfg)
 	track_interval = 5
@@ -124,10 +123,10 @@ def main(cfg):
 		return object_detected, bbox, inp_crop, K_crop, init
 		
 	# abstract OnePose pipeline
-	def onePoseForwardPass(inp_crop, K_crop):
+	def onePoseForwardPass(inp_crop, K_crop, idx):
 		inp_crop_cuda = torch.from_numpy(inp_crop.astype(np.float32)[None][None]/255.).cuda()
 		pred_detection = extractor_model(inp_crop_cuda)
-		pred_detection = {k: v[0].cpu().numpy() for k, v in pred_detection.items()}
+		pred_detection = {k: v[0].detach().cpu().numpy() for k, v in pred_detection.items()}
 		inp_data = pack_data(avg_descriptors3d, clt_descriptors, keypoints3d, pred_detection, np.array([height, width]))
 		pred, _ = matching_model(inp_data)
 		matches = pred['matches0'].detach().cpu().numpy()
@@ -141,13 +140,57 @@ def main(cfg):
 		notvalidcorners = kpts2d[notvalid]
 		print('    ',str(len(validcorners)),'valid keypoints detected')
 		_, pose_pred_homo, inliers = eval_utils.ransac_PnP(K_crop, mkpts2d, mkpts3d, scale=1000)
+		#return pose_pred_homo, inliers, validcorners, notvalidcorners
+		
+		######################################
+		# DeepLM Optical Flow (EXPERIMENTAL) #
+		######################################
+		'''
+		image_crop = (inp_crop * 255).astype(np.uint8)
+		frame_dict = {'im_path': image_crop,
+					'kpt_pred': pred_detection,
+					'pose_pred': pose_pred_homo,
+					'pose_gt': pose_pred_homo,
+					'K': K_crop,
+					'K_crop': K_crop}
+		
+		use_update = idx % track_interval == 0
+		if use_update:
+			mkpts3d_db_inlier = mkpts3d[inliers.flatten()]
+			mkpts2d_q_inlier = mkpts2d[inliers.flatten()]
+			n_kpt = kpts2d.shape[0]
+			valid_query_id = np.where(valid != False)[0][inliers.flatten()]
+			kpts3d_full = np.ones([n_kpt, 3]) * 10086
+			kpts3d_full[valid_query_id] = mkpts3d_db_inlier
+			kpt3d_ids = matches[valid][inliers.flatten()]
+			kf_dict = {'im_path': image_crop,
+				    	'kpt_pred': pred_detection,
+				    	'valid_mask': valid,
+						'mkpts2d': mkpts2d_q_inlier,
+						'mkpts3d': mkpts3d_db_inlier,
+						'inliers': inliers,
+						'kpt3d_full': kpts3d_full,
+						'kpt3d_ids': kpt3d_ids,
+						'valid_query_id': valid_query_id,
+						'pose_pred': pose_pred_homo,
+						'pose_gt': pose_pred_homo,
+						'K': K_crop}
+			need_update = not tracker.update_kf(kf_dict)
+		if idx == 0:
+			tracker.add_kf(kf_dict)
+			# idx += 1 done outside abstract function
+			pose_opt = pose_pred_homo
+		else:
+			pose_init, pose_opt, ba_log = tracker.track(frame_dict, auto_mode=False)
+		'''
+		
 		return pose_pred_homo, inliers, validcorners, notvalidcorners
 
 	# Some while-loop flags
 	init = False
 	previous_frame_pose = np.eye(4)
 	previous_inliers = []
-	#idx = 0
+	# idx = 0
 	while True:
 		# stream the next frame
 		_, image = video_stream.read()
@@ -163,7 +206,13 @@ def main(cfg):
 		if object_detected:
 			# process the frame
 			print(inp_crop.shape)
-			pose_pred_homo, inliers, validcorners, notvalidcorners = onePoseForwardPass(inp_crop, K_crop)
+			pose_pred_homo, inliers, validcorners, notvalidcorners = onePoseForwardPass(inp_crop, K_crop, idx)
+			'''
+			idx += 1
+			
+			if idx > track_interval:
+				idx = 0
+			'''
 			previous_frame_pose = pose_pred_homo
 			previous_inliers = inliers
 		else:
@@ -172,7 +221,7 @@ def main(cfg):
 			previous_inliers = []
 
 			##### Project BBox onto frame (if object detected, else just plot out SPP keypoints)
-		if object_detected and not np.array_equal(pose_pred_homo, np.eye(4)):
+		if object_detected and not np.array_equal(pose_opt, np.eye(4)):
 			poses = [pose_pred_homo]
 
 			image_full = realtime_reproj(image, poses, bbox3d, K_full, colors=['g'])
@@ -185,7 +234,7 @@ def main(cfg):
 		    
 		# display processed frame
 		cv2.imshow('frame', result)
-		#writer.write(result)
+		writer.write(result)
 		print('')
 
 		# detect 'q' key to exit the loop
