@@ -123,7 +123,7 @@ def main(cfg):
 		return object_detected, bbox, inp_crop, K_crop, init
 		
 	# abstract OnePose pipeline
-	def onePoseForwardPass(inp_crop, K_crop, idx):
+	def onePoseForwardPass(inp_crop, K_crop):
 		inp_crop_cuda = torch.from_numpy(inp_crop.astype(np.float32)[None][None]/255.).cuda()
 		pred_detection = extractor_model(inp_crop_cuda)
 		pred_detection = {k: v[0].detach().cpu().numpy() for k, v in pred_detection.items()}
@@ -206,7 +206,7 @@ def main(cfg):
 		if object_detected:
 			# process the frame
 			print(inp_crop.shape)
-			pose_pred_homo, inliers, validcorners, notvalidcorners = onePoseForwardPass(inp_crop, K_crop, idx)
+			pose_pred_homo, inliers, validcorners, notvalidcorners = onePoseForwardPass(inp_crop, K_crop)
 			'''
 			idx += 1
 			
@@ -221,7 +221,7 @@ def main(cfg):
 			previous_inliers = []
 
 			##### Project BBox onto frame (if object detected, else just plot out SPP keypoints)
-		if object_detected and not np.array_equal(pose_opt, np.eye(4)):
+		if object_detected and not np.array_equal(pose_pred_homo, np.eye(4)):
 			poses = [pose_pred_homo]
 
 			image_full = realtime_reproj(image, poses, bbox3d, K_full, colors=['g'])
