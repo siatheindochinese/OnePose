@@ -1,1 +1,1 @@
-python realsense.py +experiment=cv2_GATsSPG.yaml
+python realsense.py +experiment=rs_GATsSPG.yaml
