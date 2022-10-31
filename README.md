@@ -32,7 +32,13 @@ Modified for private use-case.
 
 - Added YoloV5 detector, weights located at data/yolov5/
 - Added realtime scripts cv2_real_time_improved.py and cv2_real_time_improved.sh
-- Added a modified feature-matching object detector (modified for realtime, but it still sucks lmao)
+- Added a modified feature-matching object detector (modified for realtime, but too slow)
+- Added Open3D Pipeline for RGB-D Cameras (for ICP refinement)
+
+## Coming Soon:
+
+- SuperPoint rotation limitation fix (default SuperPoint weights have a rotation limitation of around 45 degrees)
+- Synthetic data generation with Blender
 
 ## Acknowledgement
 This repository uses work from [YoloV5](https://github.com/ultralytics/yolov5) and [OnePose](https://github.com/zju3dv/OnePose), neither of which I am originally involved in.
