@@ -11,6 +11,9 @@ defaults:
     # enable color logging
     # - override hydra/hydra_logging: colorlog
     # - override hydra/job_logging: colorlog
+    
+    - override hydra/hydra_logging: disabled
+    - override hydra/job_logging: disabled
 
 
 # path to original working directory (that `train.py` was executed from in command line)
