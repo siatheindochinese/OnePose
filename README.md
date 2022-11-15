@@ -25,6 +25,7 @@ Images used to construct the SfM point-cloud model are generated from Blender us
 The 3D model is obtained using an Artec 3D scanner with some postprocessing using Artec's software. [NVIDIA MoMa](https://nvlabs.github.io/nvdiffrec/) is a good and cheap alternative if you cannot get your hands on a high-end 3D scanner.
 
 ## SuperPoint Limitation Fix
+![sppfix](assets/sppfix.png)
 Combined with the graph attention network, SuperPoint descriptors have a rotation limitation of about 45 degrees; Tilting further than 45 degress on all axes will result in the loss of 2D-3D correspondences.
 
 To solve this limitation, the grayscale input to SuperPoint is rotated before being passed through SuperPoint. Subsequently, the 2D coordinates of each interest point are unrotated back to the input's original orientation.
