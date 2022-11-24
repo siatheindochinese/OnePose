@@ -1,1 +1,1 @@
-python realsense.py +experiment=rs_GATsSPG.yaml
+python realsense.py +experiment=ufcoco.yaml

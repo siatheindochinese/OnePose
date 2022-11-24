@@ -91,14 +91,16 @@ def main(cfg):
 	
 	# realsense utility functions
 	align = rs.align(rs.stream.color)
+	spatial = rs.spatial_filter()
+	hole_filling = rs.hole_filling_filter(0)
 	colorizer = rs.colorizer()
 	treg = o3d.t.pipelines.registration
 	Float32 = o3d.core.Dtype.Float32
 	
 	# init open3d objects for visualization
 	pcd = o3d.geometry.PointCloud() # viz rgbd pcd
-	mesh = o3d.geometry.TriangleMesh.create_coordinate_frame()
-	mesh.scale(0.1, center = mesh.get_center())
+	xyz = o3d.geometry.TriangleMesh.create_coordinate_frame()
+	xyz.scale(0.1, center = xyz.get_center())
 	
 	# init open3d visualizer
 	vis = o3d.visualization.Visualizer()
@@ -106,9 +108,9 @@ def main(cfg):
 	
 	# init opencv window
 	cv2.namedWindow('frame',cv2.WINDOW_NORMAL)
-	cv2.resizeWindow('frame', width * 2, height * 2)
+	cv2.resizeWindow('frame', width, height)
 	cv2.namedWindow('cropped',cv2.WINDOW_NORMAL)
-	cv2.resizeWindow('cropped', 1024, 1024)
+	cv2.resizeWindow('cropped', 512, 512)
 
 	##############################################
 	# load SuperPoint, SuperGlue and OnePose GAT #
@@ -128,6 +130,7 @@ def main(cfg):
 	clt_anno_3d_path = osp.join(anno_dir, 'anno_3d_collect.npz')
 	idxs_path = osp.join(anno_dir, 'idxs.npy')
 	sfm = o3d.io.read_point_cloud(osp.join(anno_dir,'..','3Dmodel.ply')) # open3d object to compute transformations
+	sfm.scale(1000, center=sfm.get_center())
 	sfmpcd = o3d.geometry.PointCloud() # open3d object for visualization
 
 	num_leaf = cfg.num_leaf
@@ -153,6 +156,15 @@ def main(cfg):
 	K_full = np.array([[intrin.fx, 0, intrin.ppx],
 					   [0, intrin.fy, intrin.ppy],
 					   [0,         0,          1]])
+					   
+	
+	# init open3d OffscreenRenderer
+	renderer_pc = o3d.visualization.rendering.OffscreenRenderer(width, height)
+	renderer_pc.setup_camera(o3d.camera.PinholeCameraIntrinsic(width, height, intrin.fx, intrin.fy, intrin.ppx, intrin.ppy),
+							 np.eye(4))
+	renderer_pc.scene.set_background(np.array([0, 0, 0, 0]))
+	mat = o3d.visualization.rendering.MaterialRecord()
+	mat.shader = 'defaultUnlit'
 	
 	#########################
 	# Some while-loop flags #
@@ -220,7 +232,7 @@ def main(cfg):
 		kpts_new = np.concatenate((pred_detection['keypoints'], np.ones(len(pred_detection['keypoints'])).astype(int).reshape(-1,1)),axis=1)
 		kpts_new = rotmatinv @ kpts_new.T
 		pred_detection['keypoints'] = kpts_new.T.astype(int)
-		inp_data = pack_data(avg_descriptors3d, clt_descriptors, keypoints3d, pred_detection, np.array([512, 512]))
+		inp_data = pack_data(avg_descriptors3d, clt_descriptors, keypoints3d, pred_detection, np.array([height, width]))
 		pred, _ = matching_model(inp_data)
 		matches = pred['matches0'].detach().cpu().numpy()
 		valid = matches > -1
@@ -240,7 +252,7 @@ def main(cfg):
 	############################################
 	# abstract multiscale vanilla ICP pipeline #
 	############################################
-	def alignICP(src,tgt):
+	def alignmultiScaleICP(src,tgt):
 		init_source_to_target = o3d.core.Tensor(np.eye(4))
 		source = o3d.t.geometry.PointCloud.from_legacy(src).cuda(0)
 		target = o3d.t.geometry.PointCloud.from_legacy(tgt).cuda(0)
@@ -260,6 +272,27 @@ def main(cfg):
 		del source
 		del target
 		return reg_multiscale_icp.transformation.numpy(), reg_multiscale_icp.fitness
+		
+	#################################
+	# abstract vanilla ICP pipeline #
+	#################################
+	def alignICP(src, tgt):
+		init_source_to_target = o3d.core.Tensor(np.eye(4))
+		source = o3d.t.geometry.PointCloud.from_legacy(src).cuda(0)
+		target = o3d.t.geometry.PointCloud.from_legacy(tgt).cuda(0)
+		loss = treg.robust_kernel.RobustKernel(treg.robust_kernel.RobustKernelMethod.TukeyLoss,
+											   0.01)
+		estimation = treg.TransformationEstimationPointToPoint()
+		criteria = treg.ICPConvergenceCriteria(0.001, 0.001, 20)
+		max_correspondence_distance = 0.01
+		voxel_size = 0.001
+		reg_icp = treg.icp(source, target,
+									  max_correspondence_distance,
+									  init_source_to_target, estimation,
+									  criteria, voxel_size)
+		del source
+		del target
+		return reg_icp.transformation.numpy(), reg_icp.fitness
 	
 	############################################
 	# abstract multiscale colored ICP pipeline #
@@ -305,22 +338,40 @@ def main(cfg):
 		del target
 		return reg_icp.transformation.numpy(), reg_icp.fitness
 		
+	###############################
+	# depth point cloud from mesh #
+	###############################
+	def zbuf_from_geometry(sfm):
+		print('points :', len(sfm.points))
+		renderer_pc.scene.add_geometry('sfmpcd', sfm, mat)
+		dpt = renderer_pc.render_to_depth_image(z_in_view_space = True)
+		cv2.imshow('syn', np.array(dpt))
+		renderer_pc.scene.clear_geometry()
+		dptpcd = o3d.geometry.PointCloud.create_from_depth_image(dpt, intrin_o3d)
+		return dptpcd
+		
+	########################
+	# general ICP function #
+	########################
 	def refineICP(pose_pred_homo):
 		sfm.transform(pose_pred_homo)
+		##### render raw pcd
+		dptpcd = zbuf_from_geometry(sfm)
 		##### transform 3d bbox to predicted pose
 		bbox3d_t = transform_pts(bbox3d, pose_pred_homo)
 		bbo3d = o3d.geometry.OrientedBoundingBox.create_from_points(o3d.utility.Vector3dVector(bbox3d_t))
 		##### crop rgbd pcd with 3d bbox
 		temp_crop = pcd.crop(bbo3d)
-		pcd.points = temp_crop.points
-		pcd.colors = temp_crop.colors
+		#pcd.points = temp_crop.points #crop for viz
+		#pcd.colors = temp_crop.colors #crop for viz
 		##### ICP refine algorithm
-		refine_homo, fitness = alignColorICP(pcd, sfm) # icp
+		refine_homo, fitness = alignICP(temp_crop, dptpcd) # icp
 		##### refine pose with predicted icp transform
 		sfm.transform(np.linalg.inv(refine_homo)) # icp
+		dptpcd.transform(np.linalg.inv(refine_homo))
 		##### update syn pcd
-		sfmpcd.points = sfm.points
-		sfmpcd.colors = sfm.colors
+		sfmpcd.points = dptpcd.points
+		sfmpcd.colors = dptpcd.colors
 		vis.update_geometry(sfmpcd) # update location of render
 		##### untransform icp refine and pose
 		sfm.transform(refine_homo)
@@ -342,7 +393,8 @@ def main(cfg):
 		frameset = align.process(frameset)
 		color_frame = frameset.get_color_frame()
 		depth_frame = frameset.get_depth_frame()
-		dpt = np.asanyarray(depth_frame.get_data())
+		filtered_depth = spatial.process(depth_frame)
+		dpt = np.asanyarray(filtered_depth.get_data())
 		rgb = np.asanyarray(color_frame.get_data())
 		bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
 		frame = cv2.cvtColor(rgb, cv2.COLOR_BGR2GRAY) #for onepose
@@ -359,7 +411,11 @@ def main(cfg):
 		if init_obj_detect == False:
 			vis.add_geometry(pcd)
 			vis.add_geometry(sfmpcd)
-			vis.add_geometry(mesh)
+			vis.add_geometry(xyz)
+			
+			ctr = vis.get_view_control()
+			ctr.set_front((0, 0, -1))
+			ctr.set_up((0, -1, 0))
 		
 		# object detection
 		object_detected, bbox, inp_crop, K_crop,\
@@ -368,12 +424,24 @@ def main(cfg):
 		# pose estimation (if object detected)
 		if object_detected:
 			##### process the frame
-			#pose_pred_homo, inliers, _, _ = onePoseForwardPass(inp_crop, K_crop)
+			#pose_pred_homo, inliers, _, _ = onePoseForwardPass(inp_crop, K_crop) without angle fix
 			pose_pred_homo, inliers, validcorners, notvalidcorners = onePoseAngledForwardPass(inp_crop, K_crop, previous_angle)
 			rot2d, centroid, top_bb, top_aligned = projective_angle(pose_pred_homo, bbox3d, K_full)
-			if inliers > 10:
-				pose_pred_homo = refineICP(pose_pred_homo)
 			
+			##### use ICP if possible
+			if False:
+				pose_pred_homo = refineICP(pose_pred_homo)
+			else:
+				sfm.transform(pose_pred_homo)
+				#dptpcd = zbuf_from_geometry(sfm)
+				#sfmpcd.points = dptpcd.points
+				#sfmpcd.colors = dptpcd.colors
+				sfmpcd.points = sfm.points
+				sfmpcd.colors = sfm.colors
+				vis.update_geometry(sfmpcd)
+				sfm.transform(np.linalg.inv(pose_pred_homo))
+			
+			##### processing for viz
 			poses = [pose_pred_homo]
 			rot_adjust = cv2.getRotationMatrix2D(tuple(centroid), rot2d, 1)
 			image_full = realtime_reproj(rgb, poses, bbox3d, K_full, colors=['g'])
@@ -386,6 +454,7 @@ def main(cfg):
 			rot_mat = cv2.getRotationMatrix2D((256,256), rot2d, 1)
 			result_crop = cv2.warpAffine(inp_crop, rot_mat, (inp_crop.shape[0], inp_crop.shape[1]))
 			
+			#### temporal variable update
 			previous_frame_pose = pose_pred_homo
 			previous_inliers = inliers
 			previous_angle = rot2d
@@ -393,15 +462,17 @@ def main(cfg):
 			print('     No object Detected, Reset pose, fitness and flag')
 			result = rgb
 			result_crop = frame
-			##### Reset stored poses
+			##### Reset temporal variables
 			previous_frame_pose = np.eye(4)
 			previous_inliers = 0
 			previous_angle = 0
 
+		# open3d viz
 		vis.update_geometry(pcd) # update rgbd cloud
 		vis.poll_events()
 		vis.update_renderer()
 		
+		# opencv viz
 		cv2.imshow('frame', result)
 		#writer.write(result)
 		cv2.imshow('cropped', result_crop)

@@ -18,7 +18,8 @@ network:
     matching: superglue
 
 max_num_kp3d: 2500
-object: ufcoco
+object: vitasoy
+test_dir: ${data_dir}/onepose_datasets/test_data/${object}-box/${object}-test-2
 sfm_model_dir: ${data_dir}/sfm_model/${object}-box
 box3d_path: ${data_dir}/onepose_datasets/test_data/${object}-box/box3d_corners.txt
 sfm_ws_dir: ${data_dir}/sfm_model/${object}-box/outputs_superpoint_superglue/sfm_ws/model
