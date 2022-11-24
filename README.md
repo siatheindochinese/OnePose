@@ -4,7 +4,6 @@ Because I want my SfM point-cloud model to be properly aligned with my CAD Model
 
 - Added pipeline for realtime visualization.
 - Added SuperPoint rotation limtation fix.
-- Added ICP + colored-ICP refinement (requires pyrealsense and an Intel RealSense depth camera)
 
 ### [Original Project Page](https://zju3dv.github.io/onepose) | [Paper](https://arxiv.org/pdf/2205.12257.pdf)
 <br/>
@@ -36,7 +35,7 @@ Modified for private use-case.
 - Added YoloV5 detector, weights located at data/yolov5/
 - Added realtime scripts cv2_real_time_improved.py and cv2_real_time_improved.sh
 - Added a modified feature-matching object detector (modified for realtime, but too slow)
-- Added Open3D Pipeline for RGB-D Cameras (for ICP refinement)
+- Added Open3D Pipeline for RGB-D Cameras as realsense.py, requires realsense cameras.
 
 ## Coming Soon:
 - Synthetic data generation with Blender and NVIDIA MoMa setup.
