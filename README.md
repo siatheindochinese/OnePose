@@ -12,6 +12,8 @@ Because I want my SfM point-cloud model to be properly aligned with my CAD Model
 > [Jiaming Sun](https://jiamingsun.ml)<sup>\*</sup>, [Zihao Wang](http://zihaowang.xyz/)<sup>\*</sup>, [Siyu Zhang](https://derizsy.github.io/)<sup>\*</sup>, [Xingyi He](https://github.com/hxy-123/), [Hongcheng Zhao](https://github.com/HongchengZhao), [Guofeng Zhang](http://www.cad.zju.edu.cn/home/gfzhang/), [Xiaowei Zhou](https://xzhou.me)   
 > CVPR 2022  
 
+![demo_vid](assets/realtimebysia2.gif)
+
 ![demo_vid](assets/realtimebysia.gif)
 
 Refer to the original repository for setup instructions.
